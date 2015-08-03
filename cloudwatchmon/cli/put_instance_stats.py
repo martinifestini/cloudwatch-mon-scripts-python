@@ -29,6 +29,7 @@ import random
 import re
 import sys
 import time
+import subprocess
 
 CLIENT_NAME = 'CloudWatch-PutInstanceData'
 FileCache.CLIENT_NAME = CLIENT_NAME
@@ -212,6 +213,10 @@ For more information on how to use this utility, see project home on GitHub:
 https://github.com/osiegmar/cloudwatch-mon-scripts-python
     ''')
 
+    parser.add_argument('--dummy',
+                        action='store_true',
+                        help='Use fake ec2 data')
+
     parser.add_argument('--from-file',
                         metavar='FILENAME',
                         action='append',
@@ -257,6 +262,10 @@ https://github.com/osiegmar/cloudwatch-mon-scripts-python
     disk_group.add_argument('--disk-space-avail',
                             action='store_true',
                             help='Reports available disk space in gigabytes.')
+    disk_group.add_argument('--disk-include-inodes',
+                            action='store_true',
+                            help='Reports disk inodes data (same dis space'
+                                 'arguments are applied.')
     disk_group.add_argument('--disk-space-units',
                             metavar='UNITS',
                             default='gigabytes',
@@ -314,10 +323,28 @@ def add_memory_metrics(args, metrics):
                            mem.swap_used() / mem_unit_div)
 
 
-def get_disk_info(paths):
-    df_out = [s.split() for s in
-              os.popen('/bin/df -k -l -P ' +
-                       ' '.join(paths)).read().splitlines()]
+def _get_command_output(cmd):
+    return [
+        s.split() for s in
+        subprocess.check_output(cmd).splitlines()
+    ]
+
+
+def get_disk_inode_usage(paths):
+    df_out = _get_command_output(['/bin/df', '-i'] + paths)
+    disks = []
+    for line in df_out[1:]:
+        mount = line[5]
+        file_system = line[0]
+        total = int(line[1])
+        used = int(line[2])
+        avail = int(line[3])
+        disks.append(Disk(mount, file_system, total, used, avail))
+    return disks
+
+
+def get_disk_block_usage(paths):
+    df_out = _get_command_output(['/bin/df', '-k', '-l', '-P'] + paths)
     disks = []
     for line in df_out[1:]:
         mount = line[5]
@@ -332,7 +359,7 @@ def get_disk_info(paths):
 def add_disk_metrics(args, metrics):
     disk_unit_name = SIZE_UNITS_CFG[args.disk_space_units]['name']
     disk_unit_div = float(SIZE_UNITS_CFG[args.disk_space_units]['div'])
-    disks = get_disk_info(args.disk_path)
+    disks = get_disk_block_usage(args.disk_path)
     for disk in disks:
         if args.disk_space_util:
             metrics.add_metric('DiskSpaceUtilization', 'Percent',
@@ -345,6 +372,21 @@ def add_disk_metrics(args, metrics):
             metrics.add_metric('DiskSpaceAvailable', disk_unit_name,
                                disk.avail / disk_unit_div,
                                disk.mount, disk.file_system)
+
+    if args.disk_include_inodes:
+        disks = get_disk_inode_usage(args.disk_path)
+        for disk in disks:
+            if args.disk_space_util:
+                metrics.add_metric('InodeUtilization', 'Percent',
+                                   disk.util, disk.mount, disk.file_system)
+            if args.disk_space_used:
+                metrics.add_metric('InodeUsed', disk_unit_name,
+                                   disk.used / disk_unit_div,
+                                   disk.mount, disk.file_system)
+            if args.disk_space_avail:
+                metrics.add_metric('InodeAvailable', disk_unit_name,
+                                   disk.avail / disk_unit_div,
+                                   disk.mount, disk.file_system)
 
 
 def add_static_file_metrics(args, metrics):
@@ -428,7 +470,16 @@ def main():
             print 'Working in verbose mode'
             print 'Boto-Version: ' + boto.__version__
 
-        metadata = get_metadata()
+
+        if args.dummy:
+            metadata = {
+              'placement': {'availability-zone': 'local'},
+              'instance-id': 'i-dummy',
+              'instance-type': 'some-pc',
+              'ami-id': 'ami-dummy',
+            }
+        else:
+            metadata = get_metadata()
 
         if args.verbose:
             print 'Instance metadata: ' + str(metadata)
