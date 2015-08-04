@@ -100,7 +100,7 @@ class Disk:
 
 class Metrics:
     def __init__(self, region, instance_id, instance_type, image_id,
-                 aggregated, autoscaling_group_name):
+                 aggregated, autoscaling_group_name, namespace=None):
         self.names = []
         self.units = []
         self.values = []
@@ -111,6 +111,7 @@ class Metrics:
         self.image_id = image_id
         self.aggregated = aggregated
         self.autoscaling_group_name = autoscaling_group_name
+        self.namespace = namespace or 'System/Linux'
 
     def add_metric(self, name, unit, value, mount=None, file_system=None):
         common_dims = {}
@@ -155,7 +156,7 @@ class Metrics:
 
         for idx_start in xrange(0, size, AWS_LIMIT_METRICS_SIZE):
             idx_end = idx_start + AWS_LIMIT_METRICS_SIZE
-            response = conn.put_metric_data('System/Linux',
+            response = conn.put_metric_data(self.namespace,
                                             self.names[idx_start:idx_end],
                                             self.values[idx_start:idx_end],
                                             datetime.datetime.utcnow(),
@@ -167,7 +168,7 @@ class Metrics:
                                  'use --verbose for more information')
 
     def __str__(self):
-        ret = ''
+        ret = 'Namespace: {}\n'.format(self.namespace)
         for i in range(0, len(self.names)):
             ret += '{0}: {1} {2} ({3})\n'.format(self.names[i],
                                                  self.values[i],
@@ -293,6 +294,9 @@ https://github.com/osiegmar/cloudwatch-mon-scripts-python
                         const='additional',
                         nargs='?',
                         help='Adds aggregated metrics for Auto Scaling group.')
+    parser.add_argument('--namespace',
+                        default='System/Linux',
+                        help='Use this namespace for metrics')
     parser.add_argument('--verify',
                         action='store_true',
                         help='Checks configuration and prepares a remote call.')
@@ -470,13 +474,12 @@ def main():
             print 'Working in verbose mode'
             print 'Boto-Version: ' + boto.__version__
 
-
         if args.dummy:
             metadata = {
-              'placement': {'availability-zone': 'local'},
-              'instance-id': 'i-dummy',
-              'instance-type': 'some-pc',
-              'ami-id': 'ami-dummy',
+                'placement': {'availability-zone': 'local'},
+                'instance-id': 'i-dummy',
+                'instance-type': 'some-pc',
+                'ami-id': 'ami-dummy',
             }
         else:
             metadata = get_metadata()
@@ -500,7 +503,8 @@ def main():
                           metadata['instance-type'],
                           metadata['ami-id'],
                           args.aggregated,
-                          autoscaling_group_name)
+                          autoscaling_group_name,
+                          args.namespace)
 
         if args.from_file:
             add_static_file_metrics(args, metrics)
