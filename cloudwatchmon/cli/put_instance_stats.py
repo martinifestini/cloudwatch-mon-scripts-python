@@ -384,12 +384,12 @@ def add_disk_metrics(args, metrics):
                 metrics.add_metric('InodeUtilization', 'Percent',
                                    disk.util, disk.mount, disk.file_system)
             if args.disk_space_used:
-                metrics.add_metric('InodeUsed', disk_unit_name,
-                                   disk.used / disk_unit_div,
+                metrics.add_metric('InodeUsed', 'Count',
+                                   disk.used,
                                    disk.mount, disk.file_system)
             if args.disk_space_avail:
-                metrics.add_metric('InodeAvailable', disk_unit_name,
-                                   disk.avail / disk_unit_div,
+                metrics.add_metric('InodeAvailable', 'Count',
+                                   disk.avail,
                                    disk.mount, disk.file_system)
 
 
